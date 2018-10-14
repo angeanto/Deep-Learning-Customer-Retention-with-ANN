@@ -2,7 +2,7 @@
 title: "Deep Learning Customer Retention with ANN"
 author: "Antonis Angelakis"
 date: "August 24, 2018"
-output: html_document
+output: rmarkdown::github_document
 ---
 
 ```{r setup, include=FALSE}
