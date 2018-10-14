@@ -1,0 +1,195 @@
+---
+title: "Deep Learning Customer Retention with ANN"
+author: "Antonis Angelakis"
+date: "August 24, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+###Import Libraries
+
+```{r Import libraries,warning=FALSE,message=FALSE}
+library(plyr)
+library(dplyr)
+library(ggpubr)
+library(car)
+library(caTools)
+library(h2o) 
+```
+**h20 install  --> install.packages("h2o", type="source",repos=(c("http://h2o-release.s3.amazonaws.com/h2o/latest_stable_R"))) worked for my system **
+
+###Import Dataset
+
+```{r}
+Customer_Churn <- read.csv("../input/WA_Fn-UseC_-Telco-Customer-Churn.csv")
+```
+
+#Data pre-processing
+
+```{r Data pre-processing}
+##Delete CustomerID
+Customer_Churn = subset(Customer_Churn, select = -c(customerID))
+
+##Missing Values
+na_count <-sapply(Customer_Churn, function(y) sum(length(which(is.na(y)))))
+na_count <- data.frame(na_count) 
+na_count
+
+##Find NA observations
+Customer_Churn_NA <- subset(Customer_Churn, is.na(Customer_Churn$TotalCharges))
+
+##Remove them 
+Customer_Churn <- na.omit(Customer_Churn)
+
+##Change SeniorCitizen (0,1) to factors
+Customer_Churn$SeniorCitizen <- as.factor(
+  mapvalues(Customer_Churn$SeniorCitizen,
+            from=c("0","1"),
+            to=c("No", "Yes"))
+)
+
+##Change tenure to numerical
+Customer_Churn[5] <- lapply(Customer_Churn[5], as.numeric)
+```
+**CustomerID is useless for our model. We have 11 NA observations for the column TotalCharges.**
+**We delete them. We change SeniorCitizen to No/Yes and transform tenure from int to num. **
+
+##Explore Variables
+```{r explore, echo = TRUE}
+str(Customer_Churn)
+summary(Customer_Churn)
+```
+
+##Plot Categorical Variables
+```{r Plot Categorical Variables}
+plot(Customer_Churn$gender, main="gender")
+plot(Customer_Churn$SeniorCitizen, main="SeniorCitizen")
+plot(Customer_Churn$Partner, main="Partner")
+plot(Customer_Churn$Dependents, main="Dependents")
+plot(Customer_Churn$PhoneService, main="PhoneService")
+plot(Customer_Churn$MultipleLines, main="MultipleLines")
+plot(Customer_Churn$InternetService, main="InternetService")
+plot(Customer_Churn$OnlineSecurity, main="OnlineSecurity")
+plot(Customer_Churn$OnlineBackup, main="OnlineBackup")
+plot(Customer_Churn$DeviceProtection, main="DeviceProtection")
+plot(Customer_Churn$TechSupport, main="TechSupport")
+plot(Customer_Churn$StreamingTV, main="StreamingTV")
+plot(Customer_Churn$StreamingMovies, main="StreamingMovies")
+plot(Customer_Churn$Contract, main="Contract")
+plot(Customer_Churn$PaperlessBilling, main="PaperlessBilling" )
+plot(Customer_Churn$PaymentMethod, main="PaymentMethod" )
+plot(Customer_Churn$Churn,  main="Churn")
+```
+
+##Artificial Neural Network 
+###Encoding Categorical Variables as factors
+**h2o library needs categorical variables to be converted into numerical.**
+```{r Encoding the categorical variables as factors}
+Customer_Churn$gender = as.numeric(factor(Customer_Churn$gender,
+                                      levels = c('Female', 'Male'),
+                                      labels = c(1, 2)))
+Customer_Churn$SeniorCitizen = as.numeric(factor(Customer_Churn$SeniorCitizen,
+                                          levels = c('No', 'Yes'),
+                                          labels = c(1, 2)))
+Customer_Churn$Partner = as.numeric(factor(Customer_Churn$Partner,
+                                          levels = c('No', 'Yes'),
+                                          labels = c(1, 2)))
+Customer_Churn$Dependents = as.numeric(factor(Customer_Churn$Dependents,
+                                          levels = c('No', 'Yes'),
+                                          labels = c(1, 2)))
+Customer_Churn$PhoneService = as.numeric(factor(Customer_Churn$PhoneService,
+                                              levels = c('No', 'Yes'),
+                                              labels = c(1, 2)))
+Customer_Churn$MultipleLines = as.numeric(factor(Customer_Churn$MultipleLines,
+                                                levels = c('No', 'No phone service','Yes'),
+                                                labels = c(1, 2,3)))
+Customer_Churn$InternetService = as.numeric(factor(Customer_Churn$InternetService,
+                                                 levels = c('DSL', 'Fiber optic','No'),
+                                                 labels = c(1, 2,3)))
+Customer_Churn$OnlineSecurity = as.numeric(factor(Customer_Churn$OnlineSecurity,
+                                                   levels = c('No', 'No internet service','Yes'),
+                                                   labels = c(1, 2,3)))
+Customer_Churn$OnlineBackup = as.numeric(factor(Customer_Churn$OnlineBackup,
+                                                  levels = c('No', 'No internet service','Yes'),
+                                                  labels = c(1, 2,3)))
+Customer_Churn$DeviceProtection = as.numeric(factor(Customer_Churn$DeviceProtection,
+                                                  levels = c('No', 'No internet service','Yes'),
+                                                  labels = c(1, 2,3)))
+Customer_Churn$TechSupport = as.numeric(factor(Customer_Churn$TechSupport,
+                                                  levels = c('No', 'No internet service','Yes'),
+                                                  labels = c(1, 2,3)))
+Customer_Churn$StreamingTV = as.numeric(factor(Customer_Churn$StreamingTV,
+                                                  levels = c('No', 'No internet service','Yes'),
+                                                  labels = c(1, 2,3)))
+Customer_Churn$StreamingMovies = as.numeric(factor(Customer_Churn$StreamingMovies,
+                                                  levels = c('No', 'No internet service','Yes'),
+                                                  labels = c(1, 2,3)))
+Customer_Churn$Contract = as.numeric(factor(Customer_Churn$Contract,
+                                                  levels = c('Month-to-month', 'One year','Two year'),
+                                                  labels = c(1, 2,3)))
+Customer_Churn$PaperlessBilling = as.numeric(factor(Customer_Churn$PaperlessBilling,
+                                            levels = c('No', 'Yes'),
+                                            labels = c(1, 2)))
+Customer_Churn$PaymentMethod = as.numeric(factor(Customer_Churn$PaymentMethod,
+                                            levels = c('Electronic check', 'Mailed check','Credit card (automatic)','Bank transfer (automatic)'),
+                                            labels = c(1, 2,3,4)))
+```
+
+###Recode Churn from 1 or 2 to 0 or 1
+```{r Recode Churn from (1-2) to (0-1)}
+Customer_Churn$Churn = as.numeric(factor(Customer_Churn$Churn,
+                                                 levels = c('No', 'Yes'),
+                                                 labels = c(1, 2)))
+Customer_Churn$Churn<-recode(Customer_Churn$Churn,"1=0; 2=1")
+```
+**Neural network works only if our dependent variable is 0 or 1. Values must be near 0**
+
+##Splitting the dataset into training and test set
+```{r Splitting the dataset into training and test set}
+set.seed(123)
+split = sample.split(Customer_Churn$Churn, SplitRatio = 0.8)
+training_set = subset(Customer_Churn, split == TRUE)
+test_set = subset(Customer_Churn, split == FALSE)
+```
+
+##Feature Scaling
+```{r Feature Scaling}
+training_set[-20] = scale(training_set[-20])
+test_set[-20] = scale(test_set[-20])
+```
+**For ANN to work we need to scale all our independent variables.**
+
+##Fit ANN to training set
+```{r Fit ANN to training set,message=FALSE,results = 'hide'}
+h2o.init(nthreads = -1)
+model = h2o.deeplearning(y = 'Churn',
+                         training_frame = as.h2o(training_set),
+                         activation = 'Rectifier',
+                         hidden = c(3,6),
+                         epochs = 1000,
+                         train_samples_per_iteration = -2)
+```
+**After too much testing, most stable prediction results came for 3 hidden layers with 6 neurons.There are 19 neurons in the input and 1** 
+**in the ouput layer.Too many neurons in the hidden layers may result in overfitting. Number of epochs is 500.**
+
+##Predict test set results & Confusion Matrix
+```{r Predict test set results & Confusion Matrix, message = FALSE}
+y_pred = h2o.predict(model, newdata = as.h2o(test_set[-20]))
+y_pred = (y_pred > 0.5)
+y_pred = as.vector(y_pred)
+cm = table(test_set[, 20], y_pred)
+cm
+accuracy <- (cm[1,1]+cm[2,2]) / 1407 
+specificity <- cm[1,1]/ 1033
+precision <- cm[2,2]/(cm[1,2]+cm[2,2])
+print("Accuracy (Overall, how often is the classifier correct?) ")
+accuracy 
+print("Specificity (When it's actually no, how often does it predict no?) ")
+specificity  
+print("Precision (When it predicts yes, how often is it correct?) ")
+precision 
+h2o.shutdown(prompt = FALSE)
+```
